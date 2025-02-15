@@ -6,6 +6,44 @@ import dayjs from 'dayjs';
 import { MssqlUi, MysqlUi, PgUi, SnowflakeUi, SqlUiFactory } from './sqlUi';
 import { dateFormats } from './dateTimeHelper';
 
+export const ArithmeticOperators = ['+', '-', '*', '/'] as const;
+export const ComparisonOperators = ['==', '<', '>', '<=', '>=', '!='] as const;
+type ArithmeticOperator = (typeof ArithmeticOperators)[number];
+type ComparisonOperator = (typeof ComparisonOperators)[number];
+type BaseFormulaNode = {
+  type: JSEPNode;
+  dataType: FormulaDataTypes;
+};
+interface BinaryExpressionNode extends BaseFormulaNode {
+  operator: ArithmeticOperator | ComparisonOperator;
+  type: JSEPNode.BINARY_EXP;
+  right: ParsedFormulaNode;
+  left: ParsedFormulaNode;
+}
+interface CallExpressionNode extends BaseFormulaNode {
+  type: JSEPNode.CALL_EXP;
+  arguments: ParsedFormulaNode[];
+  callee: {
+    type: 'Identifier';
+    name: 'DATETIME_DIFF';
+  };
+}
+interface IdentifierNode extends BaseFormulaNode {
+  type: JSEPNode.IDENTIFIER;
+  name: string;
+  raw: string;
+}
+interface LiteralNode extends BaseFormulaNode {
+  type: JSEPNode.LITERAL;
+  value: string;
+  raw: string;
+}
+type ParsedFormulaNode =
+  | BinaryExpressionNode
+  | CallExpressionNode
+  | IdentifierNode
+  | LiteralNode;
+
 // opening and closing string code
 const OCURLY_CODE = 123; // '{'
 const CCURLY_CODE = 125; // '}'
@@ -245,6 +283,7 @@ export enum FormulaDataTypes {
   COND_EXP = 'conditional_expression',
   NULL = 'null',
   BOOLEAN = 'boolean',
+  INTERVAL = 'interval',
   UNKNOWN = 'unknown',
 }
 
@@ -267,7 +306,9 @@ interface FormulaMeta {
       max?: number;
       rqd?: number;
 
-      type?: FormulaDataTypes;
+      // array of allowed types when args types are not same
+      // types should be in order of args
+      type?: FormulaDataTypes | FormulaDataTypes[];
     };
     custom?: (args: FormulaDataTypes[], parseTree: any) => void;
   };
@@ -280,6 +321,8 @@ interface FormulaMeta {
 
 export const formulas: Record<string, FormulaMeta> = {
   AVG: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/numeric-functions#avg',
     validation: {
       args: {
         min: 1,
@@ -294,10 +337,10 @@ export const formulas: Record<string, FormulaMeta> = {
       'AVG({column1}, {column2}, {column3})',
     ],
     returnType: FormulaDataTypes.NUMERIC,
-    docsUrl:
-      'https://docs.nocodb.com/fields/field-types/formula/numeric-functions#avg',
   },
   ADD: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/numeric-functions#add',
     validation: {
       args: {
         min: 1,
@@ -312,8 +355,6 @@ export const formulas: Record<string, FormulaMeta> = {
       'ADD({column1}, {column2}, {column3})',
     ],
     returnType: FormulaDataTypes.NUMERIC,
-    docsUrl:
-      'https://docs.nocodb.com/fields/field-types/formula/numeric-functions#add',
   },
   DATEADD: {
     docsUrl:
@@ -321,6 +362,7 @@ export const formulas: Record<string, FormulaMeta> = {
     validation: {
       args: {
         rqd: 3,
+        type: FormulaDataTypes.DATE,
       },
       custom: (_argTypes: FormulaDataTypes[], parsedTree: any) => {
         if (parsedTree.arguments[0].type === JSEPNode.LITERAL) {
@@ -373,10 +415,11 @@ export const formulas: Record<string, FormulaMeta> = {
     returnType: FormulaDataTypes.DATE,
   },
   DATESTR: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/date-functions#datestr',
     validation: {
       args: {
         rqd: 1,
-        type: FormulaDataTypes.DATE,
       },
     },
     syntax: 'DATESTR(date | datetime)',
@@ -385,10 +428,11 @@ export const formulas: Record<string, FormulaMeta> = {
     returnType: FormulaDataTypes.STRING,
   },
   DAY: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/date-functions#day',
     validation: {
       args: {
         rqd: 1,
-        type: FormulaDataTypes.DATE,
       },
     },
     syntax: 'DAY(date | datetime)',
@@ -397,10 +441,11 @@ export const formulas: Record<string, FormulaMeta> = {
     returnType: FormulaDataTypes.STRING,
   },
   MONTH: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/date-functions#month',
     validation: {
       args: {
         rqd: 1,
-        type: FormulaDataTypes.DATE,
       },
     },
     syntax: 'MONTH(date | datetime)',
@@ -408,11 +453,25 @@ export const formulas: Record<string, FormulaMeta> = {
     examples: ['MONTH({column1})'],
     returnType: FormulaDataTypes.STRING,
   },
-  HOUR: {
+  YEAR: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/date-functions#year',
     validation: {
       args: {
         rqd: 1,
-        type: FormulaDataTypes.DATE,
+      },
+    },
+    syntax: 'YEAR(date | datetime)',
+    description: 'Extract year from a date field',
+    examples: ['YEAR({column1})'],
+    returnType: FormulaDataTypes.STRING,
+  },
+  HOUR: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/date-functions#hour',
+    validation: {
+      args: {
+        rqd: 1,
       },
     },
     syntax: 'DAY(time | datetime)',
@@ -428,6 +487,7 @@ export const formulas: Record<string, FormulaMeta> = {
       args: {
         min: 2,
         max: 3,
+        type: FormulaDataTypes.DATE,
       },
       custom: (_argTypes: FormulaDataTypes[], parsedTree: any) => {
         if (parsedTree.arguments[0].type === JSEPNode.LITERAL) {
@@ -720,10 +780,12 @@ export const formulas: Record<string, FormulaMeta> = {
           throw new FormulaError(
             FormulaErrorType.INVALID_ARG,
             {
-              key: 'msg.formula.numericTypeIsExpected',
+              key: 'msg.formula.typeIsExpected',
+              type: 'Numeric',
               calleeName: parsedTree.callee?.name?.toUpperCase(),
+              position: 2,
             },
-            'Numeric type is expected'
+            'The REPEAT function requires a numeric as the parameter at position 2'
           );
         }
       },
@@ -816,6 +878,7 @@ export const formulas: Record<string, FormulaMeta> = {
     validation: {
       args: {
         rqd: 0,
+        type: FormulaDataTypes.DATE,
       },
     },
     description: 'Retrieve the current time and day.',
@@ -883,29 +946,8 @@ export const formulas: Record<string, FormulaMeta> = {
     validation: {
       args: {
         rqd: 2,
+        type: [FormulaDataTypes.STRING, FormulaDataTypes.NUMERIC],
       },
-      custom(argTypes: FormulaDataTypes[], parsedTree) {
-        if (argTypes[0] !== FormulaDataTypes.STRING) {
-          throw new FormulaError(
-            FormulaErrorType.INVALID_ARG,
-            {
-              key: 'msg.formula.stringTypeIsExpected',
-              calleeName: parsedTree.callee?.name?.toUpperCase(),
-            },
-            'String type is expected'
-          );
-        }
-        if (argTypes[1] !== FormulaDataTypes.NUMERIC) {
-          throw new FormulaError(
-            FormulaErrorType.INVALID_ARG,
-            {
-              key: 'msg.formula.numericTypeIsExpected',
-              calleeName: parsedTree.callee?.name?.toUpperCase(),
-            },
-            'Numeric type is expected'
-          );
-        }
-      }
     },
     description: 'Retrieve the last n characters from the input string.',
     syntax: 'RIGHT(str, n)',
@@ -919,29 +961,8 @@ export const formulas: Record<string, FormulaMeta> = {
     validation: {
       args: {
         rqd: 2,
+        type: [FormulaDataTypes.STRING, FormulaDataTypes.NUMERIC],
       },
-      custom(argTypes: FormulaDataTypes[], parsedTree) {
-        if (argTypes[0] !== FormulaDataTypes.STRING) {
-          throw new FormulaError(
-            FormulaErrorType.INVALID_ARG,
-            {
-              key: 'msg.formula.stringTypeIsExpected',
-              calleeName: parsedTree.callee?.name?.toUpperCase(),
-            },
-            'String type is expected'
-          );
-        }
-        if (argTypes[1] !== FormulaDataTypes.NUMERIC) {
-          throw new FormulaError(
-            FormulaErrorType.INVALID_ARG,
-            {
-              key: 'msg.formula.numericTypeIsExpected',
-              calleeName: parsedTree.callee?.name?.toUpperCase(),
-            },
-            'Numeric type is expected'
-          );
-        }
-      }
     },
     description: 'Retrieve the first n characters from the input string.',
     syntax: 'LEFT(str, n)',
@@ -956,38 +977,11 @@ export const formulas: Record<string, FormulaMeta> = {
       args: {
         min: 2,
         max: 3,
-      },
-      custom(argTypes: FormulaDataTypes[], parsedTree) {
-        if (argTypes[0] !== FormulaDataTypes.STRING) {
-          throw new FormulaError(
-            FormulaErrorType.INVALID_ARG,
-            {
-              key: 'msg.formula.stringTypeIsExpected',
-              calleeName: parsedTree.callee?.name?.toUpperCase(),
-            },
-            'String type is expected'
-          );
-        }
-        if (argTypes[1] !== FormulaDataTypes.NUMERIC) {
-          throw new FormulaError(
-            FormulaErrorType.INVALID_ARG,
-            {
-              key: 'msg.formula.numericTypeIsExpected',
-              calleeName: parsedTree.callee?.name?.toUpperCase(),
-            },
-            'Numeric type is expected'
-          );
-        }
-        if (argTypes[2] && argTypes[2] !== FormulaDataTypes.NUMERIC) {
-          throw new FormulaError(
-            FormulaErrorType.INVALID_ARG,
-            {
-              key: 'msg.formula.numericTypeIsExpected',
-              calleeName: parsedTree.callee?.name?.toUpperCase(),
-            },
-            'Numeric type is expected'
-          );
-        }
+        type: [
+          FormulaDataTypes.STRING,
+          FormulaDataTypes.NUMERIC,
+          FormulaDataTypes.NUMERIC,
+        ],
       },
     },
     description:
@@ -1007,36 +1001,45 @@ export const formulas: Record<string, FormulaMeta> = {
     validation: {
       args: {
         rqd: 3,
+        type: [
+          FormulaDataTypes.STRING,
+          FormulaDataTypes.NUMERIC,
+          FormulaDataTypes.NUMERIC,
+        ],
       },
-      custom(argTypes: FormulaDataTypes[], parsedTree) {
-        if (argTypes[0] !== FormulaDataTypes.STRING) {
-          throw new FormulaError(
-            FormulaErrorType.INVALID_ARG,
-            {
-              key: 'msg.formula.stringTypeIsExpected',
-              calleeName: parsedTree.callee?.name?.toUpperCase(),
-            },
-            'String type is expected'
-          );
-        }
-        for(const i of [1,2]) {
-          if (argTypes[i] !== FormulaDataTypes.NUMERIC) {
-            throw new FormulaError(
-              FormulaErrorType.INVALID_ARG,
-              {
-                key: 'msg.formula.numericTypeIsExpected',
-                calleeName: parsedTree.callee?.name?.toUpperCase(),
-              },
-              'Numeric type is expected'
-            );
-          }
-        }
-      }
     },
     description: 'Extracts a substring; an alias for SUBSTR.',
     syntax: 'MID(str, position, [count])',
     examples: ['MID("NocoDB", 3, 2) => "co"', 'MID({column1}, 3, 2)'],
     returnType: FormulaDataTypes.STRING,
+  },
+  ISBLANK: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/string-functions#isblank',
+
+    validation: {
+      args: {
+        rqd: 1,
+      },
+    },
+    description: 'Check if the input parameter is blank.',
+    syntax: 'ISBLANK(value)',
+    examples: ['ISBLANK({column1}) => false', 'ISBLANK("") => true'],
+    returnType: FormulaDataTypes.BOOLEAN,
+  },
+  ISNOTBLANK: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/string-functions#isnotblank',
+
+    validation: {
+      args: {
+        rqd: 1,
+      },
+    },
+    description: 'Check if the input parameter is not blank.',
+    syntax: 'ISNOTBLANK(value)',
+    examples: ['ISNOTBLANK({column1}) => true', 'ISNOTBLANK("") => false'],
+    returnType: FormulaDataTypes.BOOLEAN,
   },
   IF: {
     docsUrl:
@@ -1131,14 +1134,38 @@ export const formulas: Record<string, FormulaMeta> = {
 
     validation: {
       args: {
-        rqd: 1,
-        type: FormulaDataTypes.STRING,
+        min: 1,
+        max: 2,
+        type: [FormulaDataTypes.STRING, FormulaDataTypes.STRING],
       },
     },
     description:
       'Verify and convert to a hyperlink if the input is a valid URL.',
-    syntax: 'URL(str)',
-    examples: ['URL("https://github.com/nocodb/nocodb")', 'URL({column1})'],
+    syntax: 'URL(string, [label])',
+    examples: [
+      'URL("https://github.com/nocodb/nocodb")',
+      'URL({column1})',
+      'URL("https://github.com/nocodb/nocodb", "NocoDB")',
+      'URL({column1}, {column1})',
+    ],
+    returnType: FormulaDataTypes.STRING,
+  },
+  URLENCODE: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/string-functions#urlencode',
+
+    validation: {
+      args: {
+        rqd: 1,
+        type: FormulaDataTypes.STRING,
+      },
+    },
+    description: 'Percent-encode the input parameter for use in URLs',
+    syntax: 'URLENCODE(str)',
+    examples: [
+      'URLENCODE("Hello, world") => "Hello%2C%20world"',
+      'URLENCODE({column1})',
+    ],
     returnType: FormulaDataTypes.STRING,
   },
   WEEKDAY: {
@@ -1149,6 +1176,7 @@ export const formulas: Record<string, FormulaMeta> = {
       args: {
         min: 1,
         max: 2,
+        type: FormulaDataTypes.NUMERIC,
       },
       custom(_argTypes: FormulaDataTypes[], parsedTree: any) {
         if (parsedTree.arguments[0].type === JSEPNode.LITERAL) {
@@ -1237,6 +1265,8 @@ export const formulas: Record<string, FormulaMeta> = {
     syntax: 'REGEX_MATCH(string, regex)',
     examples: ['REGEX_MATCH({title}, "abc.*")'],
     returnType: FormulaDataTypes.NUMERIC,
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/string-functions#regex_match',
   },
 
   REGEX_EXTRACT: {
@@ -1429,6 +1459,24 @@ export const formulas: Record<string, FormulaMeta> = {
     docsUrl:
       'https://docs.nocodb.com/fields/field-types/formula/numeric-functions#value',
   },
+  JSON_EXTRACT: {
+    docsUrl:
+      'https://docs.nocodb.com/fields/field-types/formula/json-functions#json_extract',
+    validation: {
+      args: {
+        min: 2,
+        max: 2,
+        type: [FormulaDataTypes.STRING, FormulaDataTypes.STRING],
+      },
+    },
+    description: 'Extracts a value from a JSON string using a jq-like syntax',
+    syntax: 'JSON_EXTRACT(json_string, path)',
+    examples: [
+      'JSON_EXTRACT(\'{"a": {"b": "c"}}\', \'.a.b\') => "c"',
+      "JSON_EXTRACT({json_column}, '.key')",
+    ],
+    returnType: FormulaDataTypes.STRING,
+  },
   // Disabling these functions for now; these act as alias for CreatedAt & UpdatedAt fields;
   // Issue: Error noticed if CreatedAt & UpdatedAt fields are removed from the table after creating these formulas
   //
@@ -1514,6 +1562,9 @@ async function extractColumnIdentifierType({
     case UITypes.PhoneNumber:
     case UITypes.Email:
     case UITypes.URL:
+    case UITypes.User:
+    case UITypes.CreatedBy:
+    case UITypes.LastModifiedBy:
       res.dataType = FormulaDataTypes.STRING;
       break;
     // numeric
@@ -1528,7 +1579,7 @@ async function extractColumnIdentifierType({
     // date
     case UITypes.Date:
     case UITypes.DateTime:
-    case UITypes.CreateTime:
+    case UITypes.CreatedTime:
     case UITypes.LastModifiedTime:
       res.dataType = FormulaDataTypes.DATE;
       break;
@@ -1591,7 +1642,14 @@ async function extractColumnIdentifierType({
       res.dataType = FormulaDataTypes.STRING;
       break;
     case UITypes.Checkbox:
-      res.dataType = FormulaDataTypes.NUMERIC;
+      if (col.dt === 'boolean' || col.dt === 'bool') {
+        res.dataType = FormulaDataTypes.BOOLEAN;
+      } else {
+        res.dataType = FormulaDataTypes.NUMERIC;
+      }
+      break;
+    case UITypes.Time:
+      res.dataType = FormulaDataTypes.INTERVAL;
       break;
     case UITypes.ID:
     case UITypes.ForeignKey:
@@ -1616,7 +1674,6 @@ async function extractColumnIdentifierType({
       }
       break;
     // not supported
-    case UITypes.Time:
     case UITypes.Lookup:
     case UITypes.Barcode:
     case UITypes.Button:
@@ -1672,6 +1729,7 @@ export async function validateFormulaAndExtractTreeWithType({
   const validateAndExtract = async (parsedTree: any) => {
     const res: {
       dataType?: FormulaDataTypes;
+      cast?: FormulaDataTypes;
       errors?: Set<string>;
       [key: string]: any;
     } = { ...parsedTree };
@@ -1679,14 +1737,17 @@ export async function validateFormulaAndExtractTreeWithType({
     if (parsedTree.type === JSEPNode.CALL_EXP) {
       const calleeName = parsedTree.callee.name.toUpperCase();
       // validate function name
-      if (
-        !formulas[calleeName] ||
-        sqlUI?.getUnsupportedFnList().includes(calleeName)
-      ) {
+      if (!formulas[calleeName]) {
         throw new FormulaError(
           FormulaErrorType.INVALID_FUNCTION_NAME,
           {},
           `Function ${calleeName} is not available`
+        );
+      } else if (sqlUI?.getUnsupportedFnList().includes(calleeName)) {
+        throw new FormulaError(
+          FormulaErrorType.INVALID_FUNCTION_NAME,
+          {},
+          `Function ${calleeName} is unavailable for your database`
         );
       }
 
@@ -1750,13 +1811,21 @@ export async function validateFormulaAndExtractTreeWithType({
       }
       // validate against expected arg types if present
       else if (formulas[calleeName].validation?.args?.type) {
-        const expectedArgType = formulas[calleeName].validation.args.type;
+        for (let i = 0; i < validateResult.length; i++) {
+          const argPt = validateResult[i];
 
-        for (const argPt of validateResult) {
+          // if type
+          const expectedArgType = Array.isArray(
+            formulas[calleeName].validation.args.type
+          )
+            ? formulas[calleeName].validation.args.type[i]
+            : formulas[calleeName].validation.args.type;
+
           if (
             argPt.dataType !== expectedArgType &&
             argPt.dataType !== FormulaDataTypes.NULL &&
-            argPt.dataType !== FormulaDataTypes.UNKNOWN
+            argPt.dataType !== FormulaDataTypes.UNKNOWN &&
+            expectedArgType !== FormulaDataTypes.STRING
           ) {
             if (argPt.type === JSEPNode.IDENTIFIER) {
               const name =
@@ -1775,32 +1844,42 @@ export async function validateFormulaAndExtractTreeWithType({
                 `Field ${name} with ${argPt.dataType} type is found but ${expectedArgType} type is expected`
               );
             } else {
-              let key = '',
-                message = 'Invalid argument type';
+              let key = '';
+              const position = i + 1;
+              let type = '';
 
               if (expectedArgType === FormulaDataTypes.NUMERIC) {
-                key = 'msg.formula.numericTypeIsExpected';
-                message = 'Numeric type is expected';
-              } else if (expectedArgType === FormulaDataTypes.STRING) {
-                key = 'msg.formula.stringTypeIsExpected';
-                message = 'String type is expected';
+                key = 'msg.formula.typeIsExpected';
+                type = 'numeric';
               } else if (expectedArgType === FormulaDataTypes.BOOLEAN) {
-                key = 'msg.formula.booleanTypeIsExpected';
-                message = 'Boolean type is expected';
+                key = 'msg.formula.typeIsExpected';
+                type = 'boolean';
               } else if (expectedArgType === FormulaDataTypes.DATE) {
-                key = 'msg.formula.dateTypeIsExpected';
-                message = 'Date type is expected';
+                key = 'msg.formula.typeIsExpected';
+                type = 'date';
               }
 
               throw new FormulaError(
                 FormulaErrorType.INVALID_ARG,
                 {
+                  type,
                   key,
+                  position,
                   calleeName,
                 },
-                message
+                `${calleeName?.toUpperCase()} requires a ${
+                  type || expectedArgType
+                } at position ${position}`
               );
             }
+          }
+
+          // if expected type is string and arg type is not string, then cast it to string
+          if (
+            expectedArgType === FormulaDataTypes.STRING &&
+            expectedArgType !== argPt.dataType
+          ) {
+            argPt.cast = FormulaDataTypes.STRING;
           }
         }
       }
@@ -1891,7 +1970,21 @@ export async function validateFormulaAndExtractTreeWithType({
       res.left = await validateAndExtract(parsedTree.left);
       res.right = await validateAndExtract(parsedTree.right);
 
-      if (['==', '<', '>', '<=', '>=', '!='].includes(parsedTree.operator)) {
+      if (
+        handleBinaryExpressionForDateAndTime({ sourceBinaryNode: res as any })
+      ) {
+        Object.assign(
+          res,
+          handleBinaryExpressionForDateAndTime({ sourceBinaryNode: res as any })
+        );
+        if (res.type !== JSEPNode.BINARY_EXP) {
+          res.left = undefined;
+          res.right = undefined;
+          res.operator = undefined;
+        }
+      } else if (
+        ['==', '<', '>', '<=', '>=', '!='].includes(parsedTree.operator)
+      ) {
         res.dataType = FormulaDataTypes.COND_EXP;
       } else if (parsedTree.operator === '+') {
         res.dataType = FormulaDataTypes.NUMERIC;
@@ -1913,8 +2006,25 @@ export async function validateFormulaAndExtractTreeWithType({
       } else {
         res.dataType = FormulaDataTypes.NUMERIC;
       }
+    } else if (parsedTree.type === JSEPNode.MEMBER_EXP) {
+      throw new FormulaError(
+        FormulaErrorType.NOT_SUPPORTED,
+        {},
+        'Bracket notation is not supported'
+      );
+    } else if (parsedTree.type === JSEPNode.ARRAY_EXP) {
+      throw new FormulaError(
+        FormulaErrorType.NOT_SUPPORTED,
+        {},
+        'Array is not supported'
+      );
+    } else if (parsedTree.type === JSEPNode.COMPOUND) {
+      throw new FormulaError(
+        FormulaErrorType.NOT_SUPPORTED,
+        {},
+        'Compound statement is not supported'
+      );
     }
-
     return res;
   };
 
@@ -1923,6 +2033,181 @@ export async function validateFormulaAndExtractTreeWithType({
   const parsedFormula = jsep(formula);
   const result = await validateAndExtract(parsedFormula);
   return result;
+}
+
+function handleBinaryExpressionForDateAndTime(params: {
+  sourceBinaryNode: BinaryExpressionNode;
+}): BaseFormulaNode | undefined {
+  const { sourceBinaryNode } = params;
+  let res: BaseFormulaNode;
+
+  if (
+    [FormulaDataTypes.DATE, FormulaDataTypes.INTERVAL].includes(
+      sourceBinaryNode.left.dataType
+    ) &&
+    [FormulaDataTypes.DATE, FormulaDataTypes.INTERVAL].includes(
+      sourceBinaryNode.right.dataType
+    ) &&
+    sourceBinaryNode.operator === '-'
+  ) {
+    // when it's interval and interval, we return diff in minute (numeric)
+    if (
+      [FormulaDataTypes.INTERVAL].includes(sourceBinaryNode.left.dataType) &&
+      [FormulaDataTypes.INTERVAL].includes(sourceBinaryNode.right.dataType)
+    ) {
+      res = {
+        type: JSEPNode.CALL_EXP,
+        arguments: [
+          sourceBinaryNode.left,
+          sourceBinaryNode.right,
+          {
+            type: 'Literal',
+            value: 'minutes',
+            raw: '"minutes"',
+            dataType: 'string',
+          },
+        ],
+        callee: {
+          type: 'Identifier',
+          name: 'DATETIME_DIFF',
+        },
+        dataType: FormulaDataTypes.NUMERIC,
+      } as CallExpressionNode;
+    }
+    // when it's date - date, show the difference in minute
+    else if (
+      [FormulaDataTypes.DATE].includes(sourceBinaryNode.left.dataType) &&
+      [FormulaDataTypes.DATE].includes(sourceBinaryNode.right.dataType)
+    ) {
+      res = {
+        type: JSEPNode.CALL_EXP,
+        arguments: [
+          sourceBinaryNode.left,
+          sourceBinaryNode.right,
+          {
+            type: 'Literal',
+            value: 'minutes',
+            raw: '"minutes"',
+            dataType: 'string',
+          },
+        ],
+        callee: {
+          type: 'Identifier',
+          name: 'DATETIME_DIFF',
+        },
+        dataType: FormulaDataTypes.NUMERIC,
+      } as CallExpressionNode;
+    }
+    // else interval and date can be addedd seamlessly A - B
+    // with result as DATE
+    // may be changed if we find other db use case
+    else if (
+      [FormulaDataTypes.INTERVAL, FormulaDataTypes.DATE].includes(
+        sourceBinaryNode.left.dataType
+      ) &&
+      [FormulaDataTypes.INTERVAL, FormulaDataTypes.DATE].includes(
+        sourceBinaryNode.right.dataType
+      ) &&
+      sourceBinaryNode.left.dataType != sourceBinaryNode.right.dataType
+    ) {
+      res = {
+        type: JSEPNode.BINARY_EXP,
+        left: sourceBinaryNode.left,
+        right: sourceBinaryNode.right,
+        operator: '-',
+        dataType: FormulaDataTypes.DATE,
+      } as BinaryExpressionNode;
+    }
+  } else if (
+    [FormulaDataTypes.DATE, FormulaDataTypes.INTERVAL].includes(
+      sourceBinaryNode.left.dataType
+    ) &&
+    [FormulaDataTypes.DATE, FormulaDataTypes.INTERVAL].includes(
+      sourceBinaryNode.right.dataType
+    ) &&
+    sourceBinaryNode.operator === '+'
+  ) {
+    // when it's interval and interval, we return addition in minute (numeric)
+    if (
+      [FormulaDataTypes.INTERVAL].includes(sourceBinaryNode.left.dataType) &&
+      [FormulaDataTypes.INTERVAL].includes(sourceBinaryNode.right.dataType)
+    ) {
+      const left = {
+        type: JSEPNode.CALL_EXP,
+        arguments: [
+          sourceBinaryNode.left,
+          {
+            type: 'Literal',
+            value: '00:00:00',
+            raw: '"00:00:00"',
+            dataType: FormulaDataTypes.INTERVAL,
+          },
+          {
+            type: 'Literal',
+            value: 'minutes',
+            raw: '"minutes"',
+            dataType: 'string',
+          },
+        ],
+        callee: {
+          type: 'Identifier',
+          name: 'DATETIME_DIFF',
+        },
+        dataType: FormulaDataTypes.NUMERIC,
+      } as CallExpressionNode;
+      const right = {
+        type: JSEPNode.CALL_EXP,
+        arguments: [
+          sourceBinaryNode.right,
+          {
+            type: 'Literal',
+            value: '00:00:00',
+            raw: '"00:00:00"',
+            dataType: FormulaDataTypes.INTERVAL,
+          },
+          {
+            type: 'Literal',
+            value: 'minutes',
+            raw: '"minutes"',
+            dataType: 'string',
+          },
+        ],
+        callee: {
+          type: 'Identifier',
+          name: 'DATETIME_DIFF',
+        },
+        dataType: FormulaDataTypes.NUMERIC,
+      } as CallExpressionNode;
+      return {
+        type: JSEPNode.BINARY_EXP,
+        left,
+        right,
+        operator: '+',
+        dataType: FormulaDataTypes.NUMERIC,
+      } as BinaryExpressionNode;
+    }
+    // else interval and date can be addedd seamlessly A + B
+    // with result as DATE
+    // may be changed if we find other db use case
+    else if (
+      [FormulaDataTypes.INTERVAL, FormulaDataTypes.DATE].includes(
+        sourceBinaryNode.left.dataType
+      ) &&
+      [FormulaDataTypes.INTERVAL, FormulaDataTypes.DATE].includes(
+        sourceBinaryNode.right.dataType
+      ) &&
+      sourceBinaryNode.left.dataType != sourceBinaryNode.right.dataType
+    ) {
+      res = {
+        type: JSEPNode.BINARY_EXP,
+        left: sourceBinaryNode.left,
+        right: sourceBinaryNode.right,
+        operator: '+',
+        dataType: FormulaDataTypes.DATE,
+      } as BinaryExpressionNode;
+    }
+  }
+  return res;
 }
 
 function checkForCircularFormulaRef(formulaCol, parsedTree, columns) {

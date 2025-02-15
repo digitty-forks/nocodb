@@ -1,30 +1,6 @@
 <script setup lang="ts">
 import type { ColumnType } from 'nocodb-sdk'
-import {
-  ActiveCellInj,
-  CellValueInj,
-  ColumnInj,
-  IsExpandedFormOpenInj,
-  IsFormInj,
-  IsGridInj,
-  NavigateDir,
-  RowInj,
-  SaveRowInj,
-  inject,
-  isBarcode,
-  isBt,
-  isCount,
-  isFormula,
-  isHm,
-  isLink,
-  isLookup,
-  isMm,
-  isQrCode,
-  isRollup,
-  provide,
-  toRef,
-} from '#imports'
-import type { Row } from '#imports'
+import { isCreatedOrLastModifiedByCol, isCreatedOrLastModifiedTimeCol } from 'nocodb-sdk'
 
 const props = defineProps<{
   column: ColumnType
@@ -60,60 +36,67 @@ function onNavigate(dir: NavigateDir, e: KeyboardEvent) {
   if (!isForm.value) e.stopImmediatePropagation()
 }
 
-// Todo: move intersection logic to a separate component or a vue directive
-const intersected = ref(false)
+const isPrimaryCol = computed(() => isPrimary(column.value))
 
-const intersectionObserver = ref<IntersectionObserver>()
-
-const elementToObserve = ref<Element>()
-
-// load the cell only when it is in the viewport
-function initIntersectionObserver() {
-  intersectionObserver.value = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      // if the cell is in the viewport, load the cell and disconnect the observer
-      if (entry.isIntersecting) {
-        intersected.value = true
-        intersectionObserver.value?.disconnect()
-        intersectionObserver.value = undefined
-      }
-    })
-  })
-}
-
-// observe the cell when it is mounted
-onMounted(() => {
-  initIntersectionObserver()
-  intersectionObserver.value?.observe(elementToObserve.value!)
+const virtualCellType = computed(() => {
+  if (isLink(column.value)) return 'link'
+  if (isHm(column.value)) return 'hm'
+  if (isMm(column.value)) return 'mm'
+  if (isBt(column.value)) return 'bt'
+  if (isOo(column.value)) return 'oo'
+  if (isRollup(column.value)) return 'rollup'
+  if (isFormula(column.value)) return 'formula'
+  if (isQrCode(column.value)) return 'qrCode'
+  if (isBarcode(column.value)) return 'barcode'
+  if (isCount(column.value)) return 'count'
+  if (isLookup(column.value)) return 'lookup'
+  if (isButton(column.value)) return 'button'
+  if (isCreatedOrLastModifiedTimeCol(column.value)) return 'createdOrLastModifiedTimeCol'
+  if (isCreatedOrLastModifiedByCol(column.value)) return 'createdOrLastModifiedByCol'
 })
 
-// disconnect the observer when the cell is unmounted
-onUnmounted(() => {
-  intersectionObserver.value?.disconnect()
+const virtualCellClassName = computed(() => {
+  let className = `nc-virtual-cell-${(column.value.uidt || 'default').toLowerCase()}`
+
+  if (isGrid.value && !isForm.value && virtualCellType.value === 'rollup' && !isExpandedForm.value) {
+    className += ' text-right justify-end'
+  }
+  if (isPrimaryCol.value && !isForm.value) {
+    className += ' nc-display-value-cell'
+  }
+
+  return className
 })
 </script>
 
 <template>
   <div
-    ref="elementToObserve"
     class="nc-virtual-cell w-full flex items-center"
-    :class="{
-      'text-right justify-end': isGrid && !isForm && isRollup(column) && !isExpandedForm,
-    }"
+    :class="virtualCellClassName"
     @keydown.enter.exact="onNavigate(NavigateDir.NEXT, $event)"
     @keydown.shift.enter.exact="onNavigate(NavigateDir.PREV, $event)"
   >
-    <template v-if="intersected">
-      <LazyVirtualCellLinks v-if="isLink(column)" />
-      <LazyVirtualCellHasMany v-else-if="isHm(column)" />
-      <LazyVirtualCellManyToMany v-else-if="isMm(column)" />
-      <LazyVirtualCellBelongsTo v-else-if="isBt(column)" />
-      <LazyVirtualCellRollup v-else-if="isRollup(column)" />
-      <LazyVirtualCellFormula v-else-if="isFormula(column)" />
-      <LazyVirtualCellQrCode v-else-if="isQrCode(column)" />
-      <LazyVirtualCellBarcode v-else-if="isBarcode(column)" />
-      <LazyVirtualCellCount v-else-if="isCount(column)" />
-      <LazyVirtualCellLookup v-else-if="isLookup(column)" />
-    </template>
+    <LazyVirtualCellLinks v-if="virtualCellType === 'link'" />
+    <LazyVirtualCellHasMany v-else-if="virtualCellType === 'hm'" />
+    <LazyVirtualCellManyToMany v-else-if="virtualCellType === 'mm'" />
+    <LazyVirtualCellBelongsTo v-else-if="virtualCellType === 'bt'" />
+    <LazyVirtualCellOneToOne v-else-if="virtualCellType === 'oo'" />
+    <LazyVirtualCellRollup v-else-if="virtualCellType === 'rollup'" />
+    <LazyVirtualCellFormula v-else-if="virtualCellType === 'formula'" />
+    <LazyVirtualCellQrCode v-else-if="virtualCellType === 'qrCode'" />
+    <LazyVirtualCellBarcode v-else-if="virtualCellType === 'barcode'" />
+    <LazyVirtualCellCount v-else-if="virtualCellType === 'count'" />
+    <LazyVirtualCellLookup v-else-if="virtualCellType === 'lookup'" />
+    <LazyVirtualCellButton v-else-if="virtualCellType === 'button'" />
+    <LazyCellDateTimeReadonly v-else-if="virtualCellType === 'createdOrLastModifiedTimeCol'" :model-value="modelValue" />
+    <LazyCellUserReadonly v-else-if="virtualCellType === 'createdOrLastModifiedByCol'" :model-value="modelValue" />
   </div>
 </template>
+
+<style lang="scss" scoped>
+.nc-virtual-cell {
+  &.nc-display-value-cell {
+    @apply !text-brand-500;
+  }
+}
+</style>
